@@ -1,0 +1,150 @@
+---
+title: "Experimentation with glasso package for sparse estimation of random matrices"
+output: html_document
+---
+
+Include necessary packages
+
+```{r setup, include=FALSE}
+library(clusterGeneration)
+library(glasso)
+library(Matrix)
+library(pracma)
+```
+
+
+Generate Sigma and Theta (Sigma^{-1}) corresponding to a graph of size p and with a sparsity_level % non null coefficients in Theta.
+
+```{r}
+# Generate a sparse positive semidefinite matrix
+genThetaSigma <-function(p, sparsity_level=0.25){
+  sigma <- as.matrix(rsparsematrix(p,p,sparsity_level))
+  sigma <- sigma + t(sigma)
+  diag <- colSums(abs(sigma),dims = 1)
+  diag(sigma) <- diag(sigma) + diag 
+  theta <- sigma + 0.5 * diag(p)
+  sigma <- pinv(theta)
+  return(list("Theta"=theta,"Sigma"=sigma))
+}
+
+# Minimal working example
+p <- 5
+res <- genThetaSigma(p)
+
+```
+
+Use glasso package to compute the TPR and FPR for different values of rho on one graph
+
+```{r pressure, echo=FALSE}
+experiment <-function(p,n,lrho=unique(c(seq(0.01,0.8,0.05),seq(0.8,10,0.3))),thr=0.0001){
+  
+  # Normalize rho
+  lrho <- lrho / p
+  
+  # Generate mu
+  mu = runif(p,-1,1)
+  # Generate sigma (and the corresponding theta)
+  res <- genThetaSigma(p)
+  sigma <- res$Sigma
+  theta <- res$Theta
+  
+  # Generate a sample
+  X = mvrnorm(n, mu, sigma)
+  
+  # Empirical covariance
+  S <- cov(X)
+  
+  # Run graphical lasso
+  gp <- glassopath(S,lrho,trace=0)
+  
+  # A coeff is considered null if its absolue value is below thr
+  
+  # Counts the number of null coefficients
+  count_P <- function(m){sum(abs(m) < thr)}
+  # Counts the number of non null coefficients
+  count_N <- function(m){sum(abs(m)>=thr)}
+  # Outputs the number of true positive coefficients
+  count_TP <- function(m){sum((abs(m) < thr)&(abs(theta) < thr))}
+  # Outputs the number of false positive coefficients
+  count_FP <- function(m){sum((abs(m) < thr)&(abs(theta) > thr))}
+  
+  # Counts the number of null coefficients for each wi (inverse of w, i.e. theta)
+  res_P <- apply(gp$wi,3,count_P)
+  # Counts the number of true positives for each wi
+  res_TP <- apply(gp$wi,3,count_TP)
+  # Counts the number of false positives for each wi
+  res_FP <- apply(gp$wi,3,count_FP)
+
+  # Compute the true positive rate
+  rate_true <- res_TP / max(1, count_P(theta))
+  # Compute the false positive rate
+  rate_false <- res_FP / max(1, count_N(theta)-p)
+  
+  return(cbind(lrho, rate_true, rate_false))
+}
+
+# Minimal working example
+# Plot test results
+test_res <- experiment(10, 1000)
+plot(test_res[,3],test_res[,2],xlim=0:1,ylim=0:1,asp=1,xlab="False positive rate",ylab="True positive rate")
+lines(c(0, 1), c(0, 1))
+title("ROC curve for a test example")
+```
+
+Repeat the experiment on N different graphs
+
+```{r, echo=FALSE}
+# Repeat experiment a given number of times N and compute statistics
+N <- 100
+
+# Experimental setup
+p <- 10
+n <- 1000
+lrho <- unique(c(seq(0.01,0.8,0.05),seq(0.8,10,0.3)))
+
+rate_true_list <- list()
+rate_false_list <- list()
+
+# Repeat experiment N times
+for(i in 1:N) {
+  test_res <- experiment(p, n)
+  rate_true_list <- cbind(rate_true_list, test_res[,2])
+  rate_false_list <- cbind(rate_false_list, test_res[,3])
+}
+
+rate_true_list <- matrix(unlist(rate_true_list), byrow=FALSE, ncol=N)
+rate_false_list <- matrix(unlist(rate_false_list), byrow=FALSE, ncol=N)
+
+# Compute means and quantiles
+means_T <- apply(rate_true_list, 1, mean)
+quant10_T <- apply(rate_true_list, 1, function(m){return(quantile(m, probs=0.1))})
+quant90_T <- apply(rate_true_list, 1, function(m){return(quantile(m, probs=0.9))})
+means_F <- apply(rate_false_list, 1, mean)
+quant10_F <- apply(rate_false_list, 1, function(m){return(quantile(m, probs=0.1))})
+quant90_F <- apply(rate_false_list, 1, function(m){return(quantile(m, probs=0.9))})
+
+# Plot with uncertainty bars
+plot(0,type='n',xlim=0:1,ylim=0:1,asp=1,xlab="False positive rate",ylab="True positive rate")
+segments(means_F,quant10_T,means_F,quant90_T, col="#00ccff")
+segments(quant10_F,means_T,quant90_F,means_T, col="#00ccff")
+epsilon <- 0.01
+segments(means_F-epsilon,quant10_T,means_F+epsilon,quant10_T, col="#00ccff")
+segments(means_F-epsilon,quant90_T,means_F+epsilon,quant90_T, col="#00ccff")
+segments(quant10_F,means_T-epsilon,quant10_F,means_T+epsilon, col="#00ccff")
+segments(quant90_F,means_T-epsilon,quant90_F,means_T+epsilon, col="#00ccff")
+# lines(quant10_F, means_T)
+# lines(quant90_F, means_T)
+# lines(means_F, quant10_T)
+# lines
+points(means_F,means_T)
+lines(c(0, 1), c(0, 1))
+title("ROC curve for N test examples")
+
+
+```
+
+
+
+
+
+
