@@ -1,5 +1,5 @@
 ---
-title: "Experimentation with glasso package for sparse estimation of random matrices"
+title: "Experimentation with glasso package for sparse estimation of random matrices and Markov chains"
 output: html_document
 ---
 
@@ -11,6 +11,12 @@ library(glasso)
 library(Matrix)
 library(pracma)
 ```
+
+
+# Experiment on random sparse graphs
+
+Here, we test glasso on some random sparse graphs and draw ROC curves to select an appropriate value for the parameter rho.
+
 
 
 Generate Sigma and Theta (Sigma^{-1}) corresponding to a graph of size p and with a sparsity_level % non null coefficients in Theta. We use the fact that a diagonally dominant matrix is positive, and add 0.5 on the diagonal in order to make the smallest eigenvalue >0.
@@ -161,19 +167,141 @@ if(print_to_eps){
 Compute the theoretical rho as in Banerjee et al. (2008)
 
 ```{r}
+# Repeat the experiment N times
+
 p <- 10
 n <- 100
 alpha <- seq(0.01,0.9,0.05)
 
-mu = runif(p,-1,1)
-res <- genThetaSigma(p)
-sigma <- res$Sigma
-# Generate a sample
-X = mvrnorm(n, mu, sigma)
-# Empirical covariance
-S <- cov(X)
+trho_list <- list()
 
-# Compute the max products of variances
+for(i in 1:N){
+  mu = runif(p,-1,1)
+  res <- genThetaSigma(p)
+  sigma <- res$Sigma
+  # Generate a sample
+  X = mvrnorm(n, mu, sigma)
+  # Empirical covariance
+  S <- cov(X)
+  
+  # Compute the max products of variances
+  S <- matrix(unlist(diag(S)),ncol=1)
+  var_products <- S %*% t(S)
+  for(i in 1:p){
+    var_products[i, 1:i] = 0
+  }
+  max_var_products <- max(max(var_products))
+  
+  # Compute the theoretical rho
+  trho <- max_var_products * qt(1-alpha/(2*p*p), n-2) / sqrt(n-2+(qt(1-alpha/(2*p*p), n-2))**2)
+  trho_list <- cbind(trho_list, trho)
+}
+
+trho_matrix <- matrix(unlist(trho_list), byrow=FALSE, ncol=N)
+trho_means <- apply(trho_matrix, 1, mean)
+trho_quant10 <- apply(trho_matrix, 1, function(m){return(quantile(m, probs=0.1))})
+trho_quant90 <- apply(trho_matrix, 1, function(m){return(quantile(m, probs=0.9))})
+
+print(cbind(alpha,trho_quant10,trho_means,trho_quant90))
+```
+
+Generate a Markov chain
+
+```{r}
+genMarkov <- function(p){
+theta <- eye(p)
+for (i in 2:p){
+  theta[i-1,i] = 0.5
+  theta[i,i-1] = 0.5
+}
+theta <-as.matrix(theta)
+sigma <- pinv(theta)
+res = list("Theta"=theta,"Sigma"=sigma)
+return(res)
+}
+
+```
+
+
+# Markov chain experiment
+
+The goal is to test whether the lasso algorithm can reconstruct a Markov chain model based on experimental data.
+
+
+Compute the number of connected components
+
+
+```{r}
+num_connected_components <- function(M,thre=0.0001){
+  p <- dim(M)[1]
+  N <- matrix(0,p,p)
+  for (i in 1:p){
+    for (j in 1:p){
+      if (abs(M[i,j])>thre){
+        N[i,j]=1
+        N[j,i]=1
+      }
+    }
+  }
+  E = expm(N)
+  for (i in 1:p){
+    for (j in 1:p){
+      if (abs(E[i,j])>thre){
+        E[i,j]=1
+      }
+    }
+  }
+  if (rowSums(E)[1]!=p){
+    a <- 2
+  }
+  else {a<-1}
+  return(a)
+}
+```
+
+
+Experiment on the Markov chain and say whether the graph is connected
+
+```{r}
+experiment_markov <-function(p,n,lrho,thr=0.001){
+  
+  # Normalize rho
+  lrho <- lrho 
+  
+  # Generate mu
+  mu = runif(p,-1,1)
+  # Generate sigma (and the corresponding theta)
+  res <- genMarkov(p)
+  
+  theta <- res$Theta
+  sigma <- res$Sigma
+  # Generate a sample
+  X = mvrnorm(n, mu, sigma)
+  
+  # Empirical covariance
+  S <- cov(X)
+  
+  # Run graphical lasso
+  gp <- glassopath(S,lrho,trace=0)
+  
+
+  # For each wi, is the graph connected?
+  ncomp <- apply(gp$wi,3,num_connected_components)
+  W <-gp$wi
+  d <- dim(W)
+  a <- d[1]
+  b <- d[2]
+  c <- d[3]
+  for (i in 1:a){
+    for (j in 1:b){
+      for (k in 1:c){
+        if (abs(W[i,j,k])< thr){W[i,j,k]=0}
+      }
+    }
+  }
+  
+  # Compute the max products of variances
+  alpha <- seq(0.0001,0.005,0.001)
 S <- matrix(unlist(diag(S)),ncol=1)
 var_products <- S %*% t(S)
 for(i in 1:p){
@@ -183,7 +311,80 @@ max_var_products <- max(max(var_products))
 
 # Compute the theoretical rho
 trho <- max_var_products * qt(1-alpha/(2*p*p), n-2) / sqrt(n-2+(qt(1-alpha/(2*p*p), n-2))**2)
-print(cbind(alpha,trho))
+rho_theo <-(cbind(alpha,trho))
+  
+  return(list("res"=cbind(lrho, ncomp),"WI"=W,"rho_theo"=rho_theo))
+}
+```
+
+
+Test
+
+
+```{r}
+p <- 10
+n <- 10000
+lrho <- c(seq(0.001,2,0.05))
+res<-experiment_markov(p,n,lrho)
+setEPS()
+postscript("connected_components.eps")
+plot(res$res[,1],res$res[,2], 
+  xlab="rho", ylab=" ",yaxp  = c(1, 2, 1),pin=c(500,100))
+
+dev.off()
+plot(res$res[,1],res$res[,2], main="Number of connected components of the graph",
+  xlab="rho", ylab=" ",yaxp  = c(1, 2, 1),pin=c(500,200))
+
+ind <- 1
+for (i in 1:dim(res$res)[1]){
+  if (res$res[i,2]==1){
+  ind <- i
+  }
+}
+print(lrho[ind])
+print(res$rho_theo)
+```
+
+
+Graph in function of rho
+
+
+```{r}
+experiment_markov2 <-function(p,n,lrho,thr=0.001){
+  
+  # Normalize rho
+  lrho <- lrho 
+  
+  # Generate mu
+  mu = runif(p,-1,1)
+  # Generate sigma (and the corresponding theta)
+  res <- genMarkov(p)
+  
+  theta <- res$Theta
+  sigma <- res$Sigma
+  # Generate a sample
+  X = mvrnorm(n, mu, sigma)
+  
+  # Empirical covariance
+  S <- cov(X)
+  
+  # Run graphical lasso
+  gp <- glassopath(S,lrho,trace=0)
+  return(gp)
+}
+
+```
+
+
+Test
+
+
+```{r}
+p <- 10
+n <- 10000
+lrho <- c(seq(0.001,10,0.1))
+res<-experiment_markov2(p,n,lrho)
+write.csv(res$wi, file = "MyData1.csv")
 ```
 
 
