@@ -15,11 +15,11 @@ library(pracma)
 
 # Experiment on random sparse graphs
 
-Here, we test glasso on some random sparse graphs and draw ROC curves to select an appropriate value for the parameter rho.
+Here, we test glasso on some random sparse graphs and draw ROC curves to select an appropriate value for the parameter `rho`.
 
 
 
-Generate Sigma and Theta (Sigma^{-1}) corresponding to a graph of size p and with a sparsity_level % non null coefficients in Theta. We use the fact that a diagonally dominant matrix is positive, and add 0.5 on the diagonal in order to make the smallest eigenvalue >0.
+Generate `Sigma` and `Theta` (`Sigma^{-1}`) corresponding to a graph of size `p` and with a sparsity_level % non null coefficients in `Theta`. We use the fact that a diagonally dominant matrix is positive, and add `0.5` on the diagonal in order to make the smallest eigenvalue `>0`.
 
 ```{r}
 # Generate a sparse positive semidefinite matrix
@@ -39,7 +39,7 @@ res <- genThetaSigma(p)
 
 ```
 
-Use glasso package to compute the TPR and FPR for different values of rho on one graph
+Use glasso package to compute the TPR and FPR for different values of `rho` on one graph
 
 ```{r pressure, echo=FALSE}
 experiment <-function(p,n,lrho,thr=0.0001){
@@ -100,7 +100,7 @@ lines(c(0, 1), c(0, 1))
 title("ROC curve for a test example")
 ```
 
-Repeat the experiment on N different graphs
+Repeat the experiment on `N` different graphs
 
 ```{r, echo=FALSE}
 # Repeat experiment a given number of times N and compute statistics
@@ -164,7 +164,7 @@ if(print_to_eps){
 }
 ```
 
-Compute the theoretical rho as in Banerjee et al. (2008)
+Compute the theoretical `rho` as in Banerjee et al. (2008), depending on a parameter `alpha`.
 
 ```{r}
 # Repeat the experiment N times
@@ -205,7 +205,14 @@ trho_quant90 <- apply(trho_matrix, 1, function(m){return(quantile(m, probs=0.9))
 print(cbind(alpha,trho_quant10,trho_means,trho_quant90))
 ```
 
+
+# Markov chain experiment
+
+The goal is to test whether the lasso algorithm can reconstruct a Markov chain model based on experimental data.
+
+
 Generate a Markov chain
+
 
 ```{r}
 genMarkov <- function(p){
@@ -221,11 +228,6 @@ return(res)
 }
 
 ```
-
-
-# Markov chain experiment
-
-The goal is to test whether the lasso algorithm can reconstruct a Markov chain model based on experimental data.
 
 
 Compute the number of connected components
@@ -261,6 +263,7 @@ num_connected_components <- function(M,thre=0.0001){
 
 
 Experiment on the Markov chain and say whether the graph is connected
+
 
 ```{r}
 experiment_markov <-function(p,n,lrho,thr=0.001){
@@ -346,7 +349,7 @@ print(res$rho_theo)
 ```
 
 
-Graph in function of rho
+Graph in function of `rho`
 
 
 ```{r}
