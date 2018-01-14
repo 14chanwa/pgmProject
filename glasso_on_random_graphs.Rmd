@@ -13,7 +13,7 @@ library(pracma)
 ```
 
 
-Generate Sigma and Theta (Sigma^{-1}) corresponding to a graph of size p and with a sparsity_level % non null coefficients in Theta.
+Generate Sigma and Theta (Sigma^{-1}) corresponding to a graph of size p and with a sparsity_level % non null coefficients in Theta. We use the fact that a diagonally dominant matrix is positive, and add 0.5 on the diagonal in order to make the smallest eigenvalue >0.
 
 ```{r}
 # Generate a sparse positive semidefinite matrix
@@ -36,7 +36,7 @@ res <- genThetaSigma(p)
 Use glasso package to compute the TPR and FPR for different values of rho on one graph
 
 ```{r pressure, echo=FALSE}
-experiment <-function(p,n,lrho=unique(c(seq(0.01,0.8,0.05),seq(0.8,10,0.3))),thr=0.0001){
+experiment <-function(p,n,lrho,thr=0.0001){
   
   # Normalize rho
   lrho <- lrho / p
@@ -85,7 +85,10 @@ experiment <-function(p,n,lrho=unique(c(seq(0.01,0.8,0.05),seq(0.8,10,0.3))),thr
 
 # Minimal working example
 # Plot test results
-test_res <- experiment(10, 1000)
+p <- 10
+n <- 1000
+lrho <- unique(c(seq(0.01,0.8,0.05),seq(0.8,10,0.3)))
+test_res <- experiment(p,n,lrho)
 plot(test_res[,3],test_res[,2],xlim=0:1,ylim=0:1,asp=1,xlab="False positive rate",ylab="True positive rate")
 lines(c(0, 1), c(0, 1))
 title("ROC curve for a test example")
@@ -102,14 +105,17 @@ p <- 10
 n <- 1000
 lrho <- unique(c(seq(0.01,0.8,0.05),seq(0.8,10,0.3)))
 
+# Print to eps?
+print_to_eps <- FALSE
+
 rate_true_list <- list()
 rate_false_list <- list()
 
 # Repeat experiment N times
 for(i in 1:N) {
-  test_res <- experiment(p, n)
-  rate_true_list <- cbind(rate_true_list, test_res[,2])
-  rate_false_list <- cbind(rate_false_list, test_res[,3])
+  test_res <- experiment(p,n,lrho)
+  rate_true_list <- cbind(rate_true_list,test_res[,2])
+  rate_false_list <- cbind(rate_false_list,test_res[,3])
 }
 
 rate_true_list <- matrix(unlist(rate_true_list), byrow=FALSE, ncol=N)
@@ -124,7 +130,12 @@ quant10_F <- apply(rate_false_list, 1, function(m){return(quantile(m, probs=0.1)
 quant90_F <- apply(rate_false_list, 1, function(m){return(quantile(m, probs=0.9))})
 
 # Plot with uncertainty bars
-plot(0,type='n',xlim=0:1,ylim=0:1,asp=1,xlab="False positive rate",ylab="True positive rate")
+if(print_to_eps){
+  setEPS()
+  postscript("experiment_random_graphs.eps")
+}
+par(pty="s")
+plot(0,type='n',xlim=0:1,ylim=0:1,asp=1,xlab="False positive rate",ylab="True positive rate",cex.lab=1.1)
 segments(means_F,quant10_T,means_F,quant90_T, col="#00ccff")
 segments(quant10_F,means_T,quant90_F,means_T, col="#00ccff")
 epsilon <- 0.01
@@ -137,14 +148,42 @@ segments(quant90_F,means_T-epsilon,quant90_F,means_T+epsilon, col="#00ccff")
 # lines(means_F, quant10_T)
 # lines
 points(means_F,means_T)
-lines(c(0, 1), c(0, 1))
-title("ROC curve for N test examples")
+lines(c(0, 1),c(0, 1))
+chosen_labels <- c(1,2,seq(3,17,2),18)
+text(means_F[chosen_labels],means_T[chosen_labels]+0.04,labels=lrho[chosen_labels],cex=0.9)
+title("ROC curve, N=100 (p=10, n=1000), for different values of rho",cex.main=1.2)
 
-
+if(print_to_eps){
+  dev.off()
+}
 ```
 
+Compute the theoretical rho as in Banerjee et al. (2008)
 
+```{r}
+p <- 10
+n <- 100
+alpha <- seq(0.01,0.9,0.05)
 
+mu = runif(p,-1,1)
+res <- genThetaSigma(p)
+sigma <- res$Sigma
+# Generate a sample
+X = mvrnorm(n, mu, sigma)
+# Empirical covariance
+S <- cov(X)
 
+# Compute the max products of variances
+S <- matrix(unlist(diag(S)),ncol=1)
+var_products <- S %*% t(S)
+for(i in 1:p){
+  var_products[i, 1:i] = 0
+}
+max_var_products <- max(max(var_products))
+
+# Compute the theoretical rho
+trho <- max_var_products * qt(1-alpha/(2*p*p), n-2) / sqrt(n-2+(qt(1-alpha/(2*p*p), n-2))**2)
+print(cbind(alpha,trho))
+```
 
 
